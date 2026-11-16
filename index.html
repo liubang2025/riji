@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f2ec">
+<title>日記</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --paper:#f4f2ec;      /* 白練：和纸底色 */
+    --sheet:#fbfaf6;      /* 紙面 */
+    --line:#ddd8cb;       /* 罫線 */
+    --sumi:#23262b;       /* 墨 */
+    --ai:#2c4a5e;         /* 藍 */
+    --ai-soft:#dfe8ea;    /* 浅葱 */
+    --mute:#7b7f84;       /* 鼠 */
+    --shu:#b5382d;        /* 朱：只用于印章与记号 */
+    --sat:#3f6c8f;
+    --sun:#a8443b;
+    --serif:"Yu Mincho","YuMincho","游明朝","Hiragino Mincho ProN","Noto Serif JP","Noto Serif SC","Source Han Serif SC","Songti SC","SimSun","宋体",serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{font-size:16px}
+  body{
+    font-family:var(--serif);
+    color:var(--sumi);
+    background:
+      radial-gradient(1200px 600px at 10% -10%,#fffdf7 0,transparent 60%),
+      radial-gradient(900px 500px at 110% 110%,#ece8dc 0,transparent 60%),
+      var(--paper);
+    min-height:100vh;
+    line-height:1.7;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  button,input{font-family:inherit;color:inherit}
+  button{cursor:pointer;background:none;border:0}
+  :focus-visible{outline:2px solid var(--ai);outline-offset:2px}
+
+  /* ---------- 页头 ---------- */
+  .top{
+    max-width:1120px;margin:0 auto;padding:22px 24px 10px;
+    display:flex;align-items:center;gap:16px;
+  }
+  .seal{
+    width:46px;height:46px;background:var(--shu);color:#fbf3ee;border-radius:3px;
+    display:grid;grid-template-rows:1fr 1fr;place-items:center;
+    font-size:19px;line-height:1;padding:5px 0;flex:none;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.28);
+    transform:rotate(-2deg);
+  }
+  .brand h1{font-size:22px;font-weight:600;letter-spacing:.35em}
+  .brand p{font-size:12px;color:var(--mute);letter-spacing:.12em}
+  .top .tools{margin-left:auto;display:flex;gap:6px}
+  .ghost{
+    font-size:13px;padding:6px 12px;border:1px solid var(--line);border-radius:2px;color:var(--ai);background:var(--sheet);
+  }
+  .ghost:hover{border-color:var(--ai)}
+
+  /* ---------- 主布局 ---------- */
+  main{
+    max-width:1120px;margin:0 auto;padding:10px 24px 40px;
+    display:grid;grid-template-columns:380px 1fr;gap:28px;align-items:start;
+  }
+  .card{
+    background:var(--sheet);border:1px solid var(--line);border-radius:3px;
+    box-shadow:0 1px 0 #fff inset,0 10px 30px -22px rgba(40,50,60,.45);
+  }
+
+  /* ---------- 日历 ---------- */
+  .cal{padding:18px 16px 16px}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .cal-title{text-align:center;flex:1}
+  .cal-title b{font-size:21px;font-weight:600;letter-spacing:.12em}
+  .cal-title small{display:block;font-size:12px;color:var(--mute);letter-spacing:.2em}
+  .nav{width:34px;height:34px;border-radius:50%;color:var(--ai);font-size:17px}
+  .nav:hover{background:var(--ai-soft)}
+  .wk,.grid{display:grid;grid-template-columns:repeat(7,1fr)}
+  .wk span{text-align:center;font-size:13px;color:var(--mute);padding:4px 0 8px;border-bottom:1px solid var(--line)}
+  .wk span:first-child{color:var(--sun)} .wk span:last-child{color:var(--sat)}
+  .day{
+    position:relative;aspect-ratio:1/1.12;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:2px;margin:2px;transition:background .15s;
+  }
+  .day:hover{background:var(--ai-soft)}
+  .day .g{font-size:17px;line-height:1.15}
+  .day .l{font-size:10.5px;color:var(--mute);line-height:1.25;white-space:nowrap}
+  .day.sun .g{color:var(--sun)} .day.sat .g{color:var(--sat)}
+  .day.today{box-shadow:inset 0 0 0 1px var(--ai)}
+  .day.sel{background:var(--ai);}
+  .day.sel .g,.day.sel .l{color:#f4f7f8}
+  .day.first .l{color:var(--ai);font-weight:600}
+  .day.sel.first .l{color:#f4f7f8}
+  .day.has::after{
+    content:"";position:absolute;top:5px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--shu);
+  }
+  .cal-foot{display:flex;justify-content:center;margin-top:10px}
+
+  /* ---------- 右侧：日期信息 + 编辑器 ---------- */
+  .edit{padding:0}
+  .info{
+    display:grid;grid-template-columns:1fr auto;gap:20px;padding:22px 26px 18px;border-bottom:1px solid var(--line);
+  }
+  .info .dates .gdate{font-size:24px;font-weight:600;letter-spacing:.06em}
+  .info .dates .wd{font-size:14px;color:var(--mute);letter-spacing:.1em;margin-top:2px}
+  .info .dates .ldate{margin-top:10px;font-size:16px;color:var(--ai);letter-spacing:.08em}
+  .timebox{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mute)}
+  .timebox input{
+    border:1px solid var(--line);background:var(--paper);border-radius:2px;padding:3px 8px;font-size:16px;
+  }
+  .pillars{display:flex;gap:8px;flex-direction:row-reverse}  /* 右起：年 月 日 时，符合竖排阅读 */
+  .pillar{
+    width:52px;border:1px solid var(--line);background:var(--paper);border-radius:2px;
+    display:flex;flex-direction:column;align-items:center;padding:8px 0 10px;
+  }
+  .pillar i{font-style:normal;font-size:11px;color:var(--mute);letter-spacing:.1em;
+    writing-mode:vertical-rl;margin-bottom:6px}
+  .pillar b{font-size:26px;font-weight:600;line-height:1.15}
+  .pillar b:last-child{color:var(--ai)}
+  .pillar.hour{border-color:var(--ai)}
+  .note{grid-column:1/-1;font-size:11.5px;color:var(--mute);line-height:1.6}
+
+  .paper{padding:18px 26px 22px}
+  .title{
+    width:100%;border:0;border-bottom:1px solid var(--sumi);background:transparent;
+    font-size:22px;font-weight:600;letter-spacing:.06em;padding:6px 2px 8px;border-radius:0;
+  }
+  .title::placeholder{color:#b3b0a6;font-weight:400}
+  .title:focus{outline:none;border-bottom-color:var(--shu)}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:4px;margin:14px 0 10px;padding-bottom:10px;border-bottom:1px dashed var(--line)}
+  .toolbar button{
+    min-width:34px;height:32px;padding:0 8px;border:1px solid transparent;border-radius:2px;font-size:15px;color:var(--ai);
+  }
+  .toolbar button:hover{background:var(--ai-soft)}
+  .toolbar button.on{background:var(--ai);color:#fff}
+  .toolbar .sep{width:1px;background:var(--line);margin:4px 4px}
+
+  .body{
+    min-height:340px;outline:none;font-size:17px;line-height:32px;padding:2px 2px;
+    background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#e5e0d3 31px,#e5e0d3 32px);
+    background-attachment:local;
+    word-break:break-word;
+  }
+  .body:empty::before{content:attr(data-placeholder);color:#b3b0a6;pointer-events:none}
+  .body h3{font-size:21px;font-weight:600;line-height:32px;letter-spacing:.06em}
+  .body blockquote{border-left:3px solid var(--shu);padding-left:14px;margin:0 0 0 4px;color:#4b5258}
+  .body ul,.body ol{padding-left:1.6em}
+  .body p,.body div{min-height:32px}
+
+  .status{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:13px;color:var(--mute)}
+  .danger{color:var(--sun);font-size:13px;padding:4px 8px}
+  .danger:hover{text-decoration:underline}
+
+  /* ---------- 登录页 ---------- */
+  .gate{
+    position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;padding:20px;overflow:auto;
+    background:radial-gradient(900px 500px at 15% 0,#fffdf7 0,transparent 60%),var(--paper);
+  }
+  body.locked .gate{display:flex}
+  body.locked main,body.locked .tabbar,body.locked .top .tools{display:none}
+  .gate-card{
+    width:100%;max-width:360px;background:var(--sheet);border:1px solid var(--line);border-radius:3px;
+    padding:30px 26px 24px;display:flex;flex-direction:column;gap:14px;text-align:center;
+    box-shadow:0 1px 0 #fff inset,0 18px 40px -26px rgba(40,50,60,.5);
+  }
+  .gate-card .seal{margin:0 auto}
+  .gate-card h2{font-size:24px;font-weight:600;letter-spacing:.4em;padding-left:.4em}
+  .gate-card .sub{font-size:13px;color:var(--mute)}
+  .gate-card label{display:block;text-align:left;font-size:13px;color:var(--mute)}
+  .gate-card input{
+    width:100%;margin-top:4px;padding:9px 10px;font-size:16px;border:1px solid var(--line);border-radius:2px;background:var(--paper);
+  }
+  .gate-card input:focus{outline:none;border-color:var(--ai)}
+  .primary{background:var(--ai);color:#f4f7f8;padding:10px;border-radius:2px;font-size:16px;letter-spacing:.3em;padding-left:calc(10px + .3em)}
+  .primary:hover{background:#243d4e}
+  .primary:disabled,.ghost:disabled{opacity:.55;cursor:wait}
+  .link{font-size:13px;color:var(--ai);text-decoration:underline;text-underline-offset:3px}
+  .msg{min-height:1.5em;font-size:13px;color:var(--ai);text-align:left;line-height:1.55}
+  .msg.bad{color:var(--sun)}
+  .status .right{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  #syncState{font-size:12.5px}
+
+  /* 手机底部切换栏 */
+  .tabbar{display:none}
+
+  /* ---------- 手机 ---------- */
+  @media (max-width:859px){
+    main{grid-template-columns:1fr;padding:6px 12px 90px;gap:0}
+    .top{padding:16px 14px 6px}
+    .brand h1{font-size:20px}
+    .brand p{display:none}
+    .ghost{padding:5px 9px;font-size:12.5px}
+    .top .tools{gap:4px}
+    .cal{padding:14px 8px 12px}
+    .day .g{font-size:18px}
+    body[data-view="cal"] .edit{display:none}
+    body[data-view="edit"] .cal{display:none}
+    .info{grid-template-columns:1fr;padding:18px 16px 14px;gap:14px}
+    .pillars{justify-content:flex-end;flex-direction:row-reverse}
+    .pillar{flex:1;width:auto;max-width:72px}
+    .paper{padding:14px 16px 18px}
+    .body{min-height:300px}
+    .tabbar{
+      display:grid;grid-template-columns:1fr 1fr;position:fixed;left:0;right:0;bottom:0;z-index:5;
+      background:var(--sheet);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+    }
+    .tabbar button{padding:10px 0 9px;font-size:15px;color:var(--mute);letter-spacing:.2em}
+    .tabbar button b{display:block;font-size:20px;font-weight:600;line-height:1.1}
+    body[data-view="cal"] .tabbar .t-cal,
+    body[data-view="edit"] .tabbar .t-edit{color:var(--ai)}
+    body[data-view="cal"] .tabbar .t-cal b,
+    body[data-view="edit"] .tabbar .t-edit b{border-bottom:2px solid var(--shu);display:inline-block}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body data-view="cal" class="locked">
+
+<header class="top">
+  <div class="seal" aria-hidden="true"><span>日</span><span>記</span></div>
+  <div class="brand">
+    <h1>日記</h1>
+    <p>にっき　写给今天的自己</p>
+  </div>
+  <div class="tools">
+    <button class="ghost" id="btnExport" title="把所有日记保存成一个备份文件">备份</button>
+    <button class="ghost" id="btnImport" title="从备份文件恢复">恢复</button>
+    <input type="file" id="fileImport" accept="application/json,.json" hidden>
+    <button class="ghost" id="btnLogout" title="退出登录">退出</button>
+  </div>
+</header>
+
+<main>
+  <!-- 日历 -->
+  <section class="card cal" id="calPanel" aria-label="日历">
+    <div class="cal-head">
+      <button class="nav" id="prevY" aria-label="上一年">«</button>
+      <button class="nav" id="prevM" aria-label="上个月">‹</button>
+      <div class="cal-title"><b id="calTitle"></b><small id="calEra"></small></div>
+      <button class="nav" id="nextM" aria-label="下个月">›</button>
+      <button class="nav" id="nextY" aria-label="下一年">»</button>
+    </div>
+    <div class="wk"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="grid" id="grid"></div>
+    <div class="cal-foot"><button class="ghost" id="btnToday">回到今天</button></div>
+  </section>
+
+  <!-- 日记 -->
+  <section class="card edit" id="editPanel" aria-label="写日记">
+    <div class="info">
+      <div class="dates">
+        <div class="gdate" id="gDate"></div>
+        <div class="wd" id="gWeek"></div>
+        <div class="ldate" id="lDate"></div>
+        <label class="timebox">时刻
+          <input type="time" id="timeInput">
+        </label>
+      </div>
+      <div class="pillars" id="pillars"></div>
+      <p class="note">干支的年、月以立春与节气为界；日柱以子时初（23:00）换日；农历年以春节为界。时柱随上方“时刻”变化。</p>
+    </div>
+
+    <div class="paper">
+      <input class="title" id="title" type="text" placeholder="标题" maxlength="60" autocomplete="off">
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="文字编辑"></div>
+      <div class="body" id="body" contenteditable="true" data-placeholder="今天，发生了什么……" spellcheck="false"></div>
+      <div class="status">
+        <span class="right"><span id="saveState">尚未书写</span><span id="syncState"></span></span>
+        <button class="danger" id="btnDelete">删除这一天</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="gate" id="gate" role="dialog" aria-label="登录">
+  <form class="gate-card" id="authForm">
+    <div class="seal" aria-hidden="true"><span>日</span><span>記</span></div>
+    <h2>日記</h2>
+    <p class="sub">登录后，日记会同步到云端，换设备也能看到</p>
+    <label>邮箱
+      <input type="email" id="email" autocomplete="username" required>
+    </label>
+    <label>密码（至少 6 位）
+      <input type="password" id="pwd" autocomplete="current-password" minlength="6" required>
+    </label>
+    <button class="primary" type="submit" id="btnLogin">登录</button>
+    <button class="ghost" type="button" id="btnSignup">注册新账号</button>
+    <button class="link" type="button" id="btnForgot">忘记密码</button>
+    <p class="msg" id="authMsg" role="status" aria-live="polite"></p>
+  </form>
+</div>
+
+<nav class="tabbar" aria-label="切换">
+  <button class="t-cal" id="tabCal"><b>暦</b>日历</button>
+  <button class="t-edit" id="tabEdit"><b>記</b>写日记</button>
+</nav>
+
+<script>
+/* ★★★ 只需要修改下面这两行（填入 Supabase 的项目网址和 publishable key）★★★ */
+const SUPABASE_URL = https://rubiqapfivbecfkpdegy.supabase.co;
+const SUPABASE_KEY = sb_publishable_GTv3s285nB909SSbD05XdA_iBe85dE-";
+
+(function(){
+  "use strict";
+
+  /* ================= 基础工具 ================= */
+  const $ = s => document.querySelector(s);
+  const pad = n => String(n).padStart(2,"0");
+  const keyOf = (y,m,d) => y+"-"+pad(m)+"-"+pad(d);
+  const WEEK = ["日","月","火","水","木","金","土"];
+  const WEEK_CN = ["星期日","星期一","星期二","星期三","星期四","星期五","星期六"];
+  const STEMS = "甲乙丙丁戊己庚辛壬癸";
+  const BRANCH = "子丑寅卯辰巳午未申酉戌亥";
+  const ZODIAC = "鼠牛虎兔龙蛇马羊猴鸡狗猪";
+  const L_MONTH = ["正","二","三","四","五","六","七","八","九","十","冬","腊"];
+  const L_DAY_10 = ["初","十","廿","三"];
+  const L_NUM = ["十","一","二","三","四","五","六","七","八","九"];
+
+  /* ================= 农历（使用浏览器内置的中国历） ================= */
+  const lunarCache = new Map();
+  function lunarOf(y,m,d){
+    const k = keyOf(y,m,d);
+    if(lunarCache.has(k)) return lunarCache.get(k);
+    let res = null;
+    try{
+      const f = new Intl.DateTimeFormat("en-u-ca-chinese-nu-latn",{year:"numeric",month:"numeric",day:"numeric"});
+      const parts = f.formatToParts(new Date(y,m-1,d,12));
+      let ry=null, mv="", dv="";
+      parts.forEach(p=>{
+        if(p.type==="relatedYear") ry=parseInt(p.value,10);
+        else if(p.type==="year" && ry===null && /^\d+$/.test(p.value)) ry=parseInt(p.value,10);
+        else if(p.type==="month") mv=p.value;
+        else if(p.type==="day") dv=p.value;
+      });
+      const leap = /bis|闰|閏/i.test(mv);
+      const mn = parseInt(mv.replace(/\D/g,""),10);
+      const dn = parseInt(dv.replace(/\D/g,""),10);
+      if(ry && mn && dn) res = {year:ry,month:mn,day:dn,leap:leap};
+    }catch(e){}
+    lunarCache.set(k,res);
+    return res;
+  }
+  function lunarDayName(n){
+    if(n===10) return "初十";
+    if(n===20) return "二十";
+    if(n===30) return "三十";
+    return L_DAY_10[Math.floor(n/10)] + L_NUM[n%10];
+  }
+  function lunarMonthName(n,leap){ return (leap?"闰":"")+L_MONTH[n-1]+"月"; }
+
+  /* ================= 干支 ================= */
+  // 太阳视黄经（低精度算法，误差约 0.01°，足够判断节气所在的日期与时辰）
+  function sunLongitude(date){
+    const jd = date.getTime()/86400000 + 2440587.5;
+    const T = (jd-2451545)/36525;
+    const rad = Math.PI/180;
+    const L0 = 280.46646 + 36000.76983*T + 0.0003032*T*T;
+    const M  = 357.52911 + 35999.05029*T - 0.0001537*T*T;
+    const C  = (1.914602-0.004817*T-0.000014*T*T)*Math.sin(M*rad)
+             + (0.019993-0.000101*T)*Math.sin(2*M*rad)
+             + 0.000289*Math.sin(3*M*rad);
+    const omega = 125.04 - 1934.136*T;
+    let lon = L0 + C - 0.00569 - 0.00478*Math.sin(omega*rad);
+    return ((lon%360)+360)%360;
+  }
+  // 返回 [[年干,年支],[月干,月支],[日干,日支],[时干,时支]]
+  function pillarsOf(y,m,d,hh,mm){
+    const dt = new Date(y,m-1,d,hh,mm);
+    // 日柱：以 23:00 换日
+    const eff = hh>=23 ? new Date(y,m-1,d+1) : new Date(y,m-1,d);
+    const days = Math.round(Date.UTC(eff.getFullYear(),eff.getMonth(),eff.getDate())/86400000);
+    const dayIdx = (days + 2440588 + 49) % 60;      // 2000-01-01 为戊午日，已校验
+    // 年柱：以立春为界
+    const lon = sunLongitude(dt);
+    let by = y;
+    if(m<=2 && lon<315) by = y-1;
+    const yearIdx = (((by-4)%60)+60)%60;            // 1984 甲子年
+    // 月柱：以节为界，寅月=0
+    const m0 = Math.floor((((lon-315)%360)+360)%360/30);
+    const mBranch = (2+m0)%12;
+    const mStem = (((yearIdx%10)%5)*2 + 2 + m0)%10;  // 五虎遁
+    // 时柱：五鼠遁
+    const hBranch = Math.floor((hh+1)/2)%12;
+    const hStem = (((dayIdx%10)%5)*2 + hBranch)%10;
+    return [
+      [yearIdx%10, yearIdx%12],
+      [mStem, mBranch],
+      [dayIdx%10, dayIdx%12],
+      [hStem, hBranch]
+    ];
+  }
+
+  /* ================= 数据存取（本机缓存 + 云端同步） ================= */
+  const sb = (window.supabase && /^https:\/\//.test(SUPABASE_URL) && SUPABASE_KEY.length > 20)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  let user = null;        // 当前登录的用户
+  let db = {};            // 当前用户的日记缓存 {"2026-11-16": {title, body, time, updated}}
+  let pending = {};       // 还没有上传到云端的改动 {"2026-11-16": "up" | "del"}
+  let dirty = false;      // 编辑区里是否有尚未保存的改动
+  let flushing = false, syncBusy = false;
+  const cacheKey   = () => "nikki.v2." + user.id;
+  const pendingKey = () => "nikki.v2.pending." + user.id;
+  const setSync = t => { const n = document.querySelector("#syncState"); if(n) n.textContent = t; };
+
+  function persist(){
+    if(!user) return false;
+    try{
+      localStorage.setItem(cacheKey(), JSON.stringify(db));
+      localStorage.setItem(pendingKey(), JSON.stringify(pending));
+      return true;
+    }catch(e){ return false; }
+  }
+
+  // 上传一天的改动
+  async function pushOne(k){
+    const op = pending[k], entry = db[k];
+    let error = null;
+    if(op === "del"){
+      ({error} = await sb.from("diaries").delete().eq("day", k));
+    }else if(op === "up" && entry){
+      ({error} = await sb.from("diaries").upsert(
+        {user_id:user.id, day:k, title:entry.title||"", body:entry.body||"", clock:entry.time||"", updated:entry.updated||Date.now()},
+        {onConflict:"user_id,day"}));
+    }
+    if(error) return false;
+    if(pending[k] === op && db[k] === entry) delete pending[k];
+    persist();
+    return true;
+  }
+  async function flushPending(){
+    if(!user || !sb || flushing) return true;
+    flushing = true;
+    let ok = true;
+    try{
+      let keys;
+      while((keys = Object.keys(pending)).length && ok){
+        for(const k of keys){ if(!(await pushOne(k))){ ok = false; break; } }
+      }
+    }catch(e){ ok = false; }
+    flushing = false;
+    setSync(ok ? "已同步 "+nowTime() : "未同步（稍后自动重试）");
+    return ok;
+  }
+  // 从云端拉取（以较新的为准；本机还没上传的改动优先保留）
+  async function pull(){
+    let all = [], from = 0;
+    while(true){
+      const {data, error} = await sb.from("diaries").select("day,title,body,clock,updated").order("day").range(from, from+999);
+      if(error) return false;
+      all = all.concat(data);
+      if(data.length < 1000) break;
+      from += 1000;
+    }
+    const seen = new Set();
+    all.forEach(r => {
+      seen.add(r.day);
+      if(pending[r.day]) return;
+      const l = db[r.day], ru = Number(r.updated) || 0;
+      if(!l || (l.updated||0) < ru) db[r.day] = {title:r.title, body:r.body, time:r.clock, updated:ru};
+    });
+    Object.keys(db).forEach(k => { if(!seen.has(k) && !pending[k]) delete db[k]; });
+    persist();
+    return true;
+  }
+  async function syncAll(){
+    if(!user || !sb || syncBusy) return;
+    syncBusy = true;
+    setSync("同步中……");
+    try{
+      const k0 = keyOf(cur.y,cur.m,cur.d);
+      const before = JSON.stringify(db[k0] || null);
+      await flushPending();
+      const ok = await pull();
+      renderCalendar();
+      if(!dirty && JSON.stringify(db[k0] || null) !== before) loadDay();
+      setSync(ok && !Object.keys(pending).length ? "已同步 "+nowTime() : "未同步（稍后自动重试）");
+    }catch(e){ setSync("未同步（稍后自动重试）"); }
+    syncBusy = false;
+  }
+  // 把旧版（只存在本机的）日记导入当前账号
+  function migrateOld(){
+    const flag = "nikki.v1.migrated." + user.id;
+    if(localStorage.getItem(flag)) return;
+    let old = null;
+    try{ old = JSON.parse(localStorage.getItem("nikki.v1") || "null"); }catch(e){}
+    const keys = old ? Object.keys(old) : [];
+    if(!keys.length) return;
+    if(confirm("发现这台设备上有 "+keys.length+" 篇旧日记，要导入到当前账号并同步到云端吗？")){
+      keys.forEach(k => { if(!db[k]){ db[k] = old[k]; pending[k] = "up"; } });
+      persist();
+    }
+    localStorage.setItem(flag, "1");
+  }
+
+  /* ================= 状态 ================= */
+  const now = new Date();
+  let cur  = {y:now.getFullYear(), m:now.getMonth()+1, d:now.getDate()};
+  let show = {y:cur.y, m:cur.m};
+  let saveTimer = null;
+
+  const el = {
+    grid:$("#grid"), calTitle:$("#calTitle"), calEra:$("#calEra"),
+    gDate:$("#gDate"), gWeek:$("#gWeek"), lDate:$("#lDate"), pillars:$("#pillars"),
+    time:$("#timeInput"), title:$("#title"), body:$("#body"), state:$("#saveState"), toolbar:$("#toolbar")
+  };
+  const isMobile = () => window.matchMedia("(max-width:859px)").matches;
+  const nowTime = () => { const t=new Date(); return pad(t.getHours())+":"+pad(t.getMinutes()); };
+
+  /* ================= 日历渲染 ================= */
+  function eraText(y){
+    if(y<2019) return "";
+    const n = y-2018;
+    return "令和"+(n===1?"元":n)+"年";
+  }
+  function renderCalendar(){
+    const {y,m} = show;
+    el.calTitle.textContent = y+"年 "+m+"月";
+    el.calEra.textContent = eraText(y);
+    const first = new Date(y,m-1,1).getDay();
+    const total = new Date(y,m,0).getDate();
+    const today = new Date();
+    let html = "";
+    for(let i=0;i<first;i++) html += '<span></span>';
+    for(let d=1; d<=total; d++){
+      const wd = new Date(y,m-1,d).getDay();
+      const lu = lunarOf(y,m,d);
+      let lt = "";
+      let isFirst = false;
+      if(lu){
+        if(lu.day===1){ lt = lunarMonthName(lu.month,lu.leap); isFirst = true; }
+        else lt = lunarDayName(lu.day);
+      }
+      const cls = ["day"];
+      if(wd===0) cls.push("sun");
+      if(wd===6) cls.push("sat");
+      if(isFirst) cls.push("first");
+      if(y===today.getFullYear() && m===today.getMonth()+1 && d===today.getDate()) cls.push("today");
+      if(y===cur.y && m===cur.m && d===cur.d) cls.push("sel");
+      if(db[keyOf(y,m,d)]) cls.push("has");
+      html += '<button class="'+cls.join(" ")+'" data-d="'+d+'" aria-label="'+m+'月'+d+'日"><span class="g">'+d+'</span><span class="l">'+lt+'</span></button>';
+    }
+    el.grid.innerHTML = html;
+  }
+
+  /* ================= 日期信息渲染 ================= */
+  function renderInfo(){
+    const {y,m,d} = cur;
+    const wd = new Date(y,m-1,d).getDay();
+    el.gDate.textContent = y+"年"+m+"月"+d+"日";
+    el.gWeek.textContent = WEEK_CN[wd] + (eraText(y) ? "　" + eraText(y) : "");
+    const lu = lunarOf(y,m,d);
+    if(lu){
+      const yi = (((lu.year-4)%60)+60)%60;
+      el.lDate.textContent = "农历 " + STEMS[yi%10]+BRANCH[yi%12]+"年（"+ZODIAC[yi%12]+"） "
+        + lunarMonthName(lu.month,lu.leap) + lunarDayName(lu.day);
+    }else{
+      el.lDate.textContent = "农历：当前浏览器不支持，请使用 Edge 或 Chrome";
+    }
+    const [hh,mm] = (el.time.value||"12:00").split(":").map(Number);
+    const p = pillarsOf(y,m,d,hh,mm);
+    const labels = ["年","月","日","时"];
+    el.pillars.innerHTML = p.map((x,i)=>
+      '<div class="pillar'+(i===3?' hour':'')+'"><i>'+labels[i]+'柱</i><b>'+STEMS[x[0]]+'</b><b>'+BRANCH[x[1]]+'</b></div>'
+    ).join("");
+  }
+
+  /* ================= 加载 / 保存 ================= */
+  function loadDay(){
+    const e = db[keyOf(cur.y,cur.m,cur.d)];
+    el.title.value = e ? (e.title||"") : "";
+    el.body.innerHTML = e ? (e.body||"") : "";
+    el.time.value = e && e.time ? e.time : nowTime();
+    el.state.textContent = e ? "已保存" : "尚未书写";
+    renderInfo();
+    refreshToolState();
+  }
+  function saveNow(){
+    clearTimeout(saveTimer);
+    if(!user || !dirty) return;
+    dirty = false;
+    const k = keyOf(cur.y,cur.m,cur.d);
+    const title = el.title.value.trim();
+    const text  = el.body.textContent.trim();
+    const hasContent = title || text || el.body.querySelector("ul,ol,blockquote");
+    if(hasContent){
+      db[k] = {title:el.title.value, body:el.body.innerHTML, time:el.time.value, updated:Date.now()};
+      pending[k] = "up";
+    }else if(db[k]){
+      delete db[k];
+      pending[k] = "del";
+    }
+    const ok = persist();
+    el.state.textContent = ok ? (hasContent ? "已保存 "+nowTime() : "尚未书写") : "保存失败：浏览器存储不可用";
+    const cell = el.grid.querySelector('[data-d="'+cur.d+'"]');
+    if(cell && cur.y===show.y && cur.m===show.m) cell.classList.toggle("has", !!hasContent);
+    flushPending();
+  }
+  function scheduleSave(){
+    dirty = true;
+    el.state.textContent = "书写中……";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 500);
+  }
+
+  function selectDate(y,m,d,gotoEdit){
+    saveNow();
+    cur = {y,m,d};
+    show = {y,m};
+    renderCalendar();
+    loadDay();
+    if(gotoEdit && isMobile()) setView("edit");
+  }
+
+  /* ================= 视图切换（手机） ================= */
+  function setView(v){
+    document.body.dataset.view = v;
+    window.scrollTo({top:0});
+  }
+
+  /* ================= 工具栏 ================= */
+  const TOOLS = [
+    ["bold","<b>粗</b>","粗体"],["italic","<i>斜</i>","斜体"],["underline","<u>线</u>","下划线"],["strikeThrough","<s>删</s>","删除线"],
+    "|",
+    ["h","大","大标题"],["p","正","普通正文"],["quote","「」","引用"],
+    "|",
+    ["insertUnorderedList","・","项目列表"],["insertOrderedList","1.","编号列表"],
+    "|",
+    ["justifyLeft","左","靠左"],["justifyCenter","中","居中"],
+    "|",
+    ["red","朱","朱色文字"],["removeFormat","清","清除格式"],
+    "|",
+    ["undo","↶","撤销"],["redo","↷","重做"]
+  ];
+  el.toolbar.innerHTML = TOOLS.map(t => t==="|" ? '<span class="sep"></span>'
+    : '<button type="button" data-cmd="'+t[0]+'" title="'+t[2]+'" aria-label="'+t[2]+'">'+t[1]+'</button>').join("");
+
+  el.toolbar.addEventListener("mousedown", e => { if(e.target.closest("button")) e.preventDefault(); });
+  el.toolbar.addEventListener("click", e => {
+    const b = e.target.closest("button"); if(!b) return;
+    el.body.focus();
+    const c = b.dataset.cmd;
+    try{ document.execCommand("styleWithCSS",false,false); }catch(_){}
+    if(c==="h")          document.execCommand("formatBlock",false,"<h3>");
+    else if(c==="p")     document.execCommand("formatBlock",false,"<p>");
+    else if(c==="quote") document.execCommand("formatBlock",false,"<blockquote>");
+    else if(c==="red")   document.execCommand("foreColor",false,"#b5382d");
+    else                 document.execCommand(c,false,null);
+    scheduleSave(); refreshToolState();
+  });
+  function refreshToolState(){
+    ["bold","italic","underline","strikeThrough","insertUnorderedList","insertOrderedList"].forEach(c=>{
+      const b = el.toolbar.querySelector('[data-cmd="'+c+'"]');
+      let on = false;
+      try{ on = document.activeElement===el.body && document.queryCommandState(c); }catch(_){}
+      if(b) b.classList.toggle("on", !!on);
+    });
+  }
+  document.addEventListener("selectionchange", refreshToolState);
+
+  /* ================= 事件绑定 ================= */
+  el.body.addEventListener("input", () => {
+    if(!el.body.textContent.trim() && !el.body.querySelector("ul,ol,blockquote,img")) el.body.innerHTML = "";
+    scheduleSave();
+  });
+  // 粘贴时只保留纯文字，避免带入网页的杂乱格式
+  el.body.addEventListener("paste", e => {
+    e.preventDefault();
+    const t = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, t);
+  });
+  el.title.addEventListener("input", scheduleSave);
+  el.time.addEventListener("input", () => { renderInfo(); scheduleSave(); });
+
+  el.grid.addEventListener("click", e => {
+    const b = e.target.closest(".day"); if(!b) return;
+    selectDate(show.y, show.m, parseInt(b.dataset.d,10), true);
+  });
+  function shift(dm){
+    let m = show.m + dm, y = show.y;
+    while(m<1){ m+=12; y--; } while(m>12){ m-=12; y++; }
+    show = {y,m}; renderCalendar();
+  }
+  $("#prevM").onclick = () => shift(-1);
+  $("#nextM").onclick = () => shift(1);
+  $("#prevY").onclick = () => shift(-12);
+  $("#nextY").onclick = () => shift(12);
+  $("#btnToday").onclick = () => { const t=new Date(); selectDate(t.getFullYear(),t.getMonth()+1,t.getDate(),true); };
+  $("#tabCal").onclick  = () => setView("cal");
+  $("#tabEdit").onclick = () => setView("edit");
+
+  $("#btnDelete").onclick = () => {
+    const k = keyOf(cur.y,cur.m,cur.d);
+    if(!db[k] && !el.title.value && !el.body.textContent.trim()){ return; }
+    if(confirm("确定删除 "+cur.y+"年"+cur.m+"月"+cur.d+"日 的日记吗？删除后无法找回。")){
+      if(db[k]){ delete db[k]; pending[k] = "del"; }
+      dirty = false; clearTimeout(saveTimer); persist(); flushPending();
+      el.title.value=""; el.body.innerHTML=""; el.time.value=nowTime();
+      el.state.textContent="尚未书写";
+      renderCalendar(); renderInfo();
+    }
+  };
+
+  /* 备份与恢复 */
+  $("#btnExport").onclick = () => {
+    saveNow();
+    const blob = new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+    const a = document.createElement("a");
+    const t = new Date();
+    a.href = URL.createObjectURL(blob);
+    a.download = "日记备份-"+t.getFullYear()+pad(t.getMonth()+1)+pad(t.getDate())+".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+  $("#btnImport").onclick = () => $("#fileImport").click();
+  $("#fileImport").onchange = ev => {
+    const f = ev.target.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try{
+        const data = JSON.parse(r.result);
+        if(typeof data!=="object" || Array.isArray(data)) throw 0;
+        const keys = Object.keys(data).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k) && data[k] && typeof data[k] === "object");
+        const n = keys.length;
+        if(!n) throw 0;
+        if(!confirm("将导入 "+n+" 篇日记；同一天已有的内容会被备份文件覆盖。继续吗？")) return;
+        keys.forEach(k => {
+          const v = data[k];
+          db[k] = {title:v.title||"", body:v.body||"", time:v.time||"", updated:Date.now()};
+          pending[k] = "up";
+        });
+        persist(); flushPending();
+        renderCalendar(); loadDay();
+        alert("已恢复 "+n+" 篇日记。");
+      }catch(e){ alert("这个文件无法识别，请选择之前“备份”生成的 .json 文件。"); }
+    };
+    r.readAsText(f); ev.target.value="";
+  };
+
+  window.addEventListener("beforeunload", saveNow);
+  document.addEventListener("visibilitychange", () => { if(document.hidden) saveNow(); else syncAll(); });
+  window.addEventListener("online", syncAll);
+  setInterval(() => { if(user && Object.keys(pending).length) flushPending(); }, 20000);
+
+  /* ================= 登录 / 退出 ================= */
+  const authMsg = $("#authMsg");
+  const authBtns = ["#btnLogin","#btnSignup","#btnForgot"].map(x => $(x));
+  const msg = (t, bad) => { authMsg.textContent = t || ""; authMsg.className = "msg" + (bad ? " bad" : ""); };
+  const busy = b => authBtns.forEach(x => x.disabled = b);
+  function zhErr(e){
+    const m = ((e && e.message) || String(e)).toLowerCase();
+    if(m.includes("invalid login")) return "邮箱或密码不正确。";
+    if(m.includes("not confirmed")) return "邮箱还没有确认，请先点击邮件里的确认链接。";
+    if(m.includes("already registered")) return "这个邮箱已经注册过了，请直接登录。";
+    if(m.includes("signups not allowed") || m.includes("signup is disabled") || m.includes("signups are disabled")) return "当前不允许注册新账号。";
+    if(m.includes("at least")) return "密码至少需要 6 位。";
+    if(m.includes("rate limit") || m.includes("too many") || m.includes("security purposes")) return "操作太频繁了，请等几分钟再试。";
+    if(m.includes("failed to fetch") || m.includes("network")) return "网络连接失败，请检查网络后重试。";
+    if(m.includes("different from the old")) return "新密码不能和旧密码相同。";
+    return "出错了：" + ((e && e.message) || e);
+  }
+  const redirectUrl = () => location.origin + location.pathname;
+
+  async function enterApp(u){
+    user = u;
+    try{ db = JSON.parse(localStorage.getItem(cacheKey()) || "{}") || {}; }catch(e){ db = {}; }
+    try{ pending = JSON.parse(localStorage.getItem(pendingKey()) || "{}") || {}; }catch(e){ pending = {}; }
+    migrateOld();
+    dirty = false;
+    document.body.classList.remove("locked");
+    $("#btnLogout").title = "退出登录（" + (u.email || "") + "）";
+    $("#pwd").value = ""; msg("");
+    renderCalendar(); loadDay();
+    await syncAll();
+  }
+  function leaveApp(){
+    clearTimeout(saveTimer);
+    user = null; db = {}; pending = {}; dirty = false;
+    el.title.value = ""; el.body.innerHTML = ""; setSync("");
+    document.body.classList.add("locked");
+    $("#pwd").value = ""; msg("");
+  }
+  async function recoverPassword(){
+    const p = prompt("请输入新密码（至少 6 位）");
+    if(!p) return;
+    const {error} = await sb.auth.updateUser({password:p});
+    alert(error ? zhErr(error) : "密码已更新。");
+  }
+
+  if(!sb){
+    msg(window.supabase
+      ? "还没有填写云服务的“项目网址”和“密钥”。请按教程修改文件开头的两行配置。"
+      : "云服务组件没有加载成功，请检查网络后刷新页面。", true);
+    busy(true);
+  }else{
+    sb.auth.onAuthStateChange((event, session) => {
+      // 注意：回调里不要直接 await Supabase 方法，用 setTimeout 放到下一轮
+      setTimeout(() => {
+        if(event === "PASSWORD_RECOVERY") recoverPassword();
+        if(session && session.user){
+          if(!user || user.id !== session.user.id) enterApp(session.user);
+        }else if(event === "SIGNED_OUT" && user){
+          leaveApp();
+        }
+      }, 0);
+    });
+
+    $("#authForm").addEventListener("submit", async ev => {
+      ev.preventDefault(); busy(true); msg("登录中……");
+      const {error} = await sb.auth.signInWithPassword({email:$("#email").value.trim(), password:$("#pwd").value});
+      busy(false);
+      msg(error ? zhErr(error) : "", !!error);
+    });
+    $("#btnSignup").onclick = async () => {
+      const email = $("#email").value.trim(), password = $("#pwd").value;
+      if(!email || password.length < 6){ msg("请填写邮箱，并设置至少 6 位的密码。", true); return; }
+      busy(true); msg("注册中……");
+      const {data, error} = await sb.auth.signUp({email, password, options:{emailRedirectTo:redirectUrl()}});
+      busy(false);
+      if(error) msg(zhErr(error), true);
+      else if(!data.session) msg("注册成功！请到邮箱点击确认链接，然后回来登录。");
+    };
+    $("#btnForgot").onclick = async () => {
+      const email = $("#email").value.trim();
+      if(!email){ msg("请先在上面填写邮箱。", true); return; }
+      busy(true);
+      const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo:redirectUrl()});
+      busy(false);
+      msg(error ? zhErr(error) : "重置密码的邮件已发送，请查收。", !!error);
+    };
+    $("#btnLogout").onclick = async () => {
+      saveNow();
+      await flushPending();
+      if(Object.keys(pending).length &&
+         !confirm("还有内容没有同步到云端（可能是网络问题）。退出后这些内容仍保存在本机，下次登录同一账号时会继续上传。要退出吗？")) return;
+      await sb.auth.signOut();
+    };
+  }
+})();
+</script>
+</body>
+</html>
